@@ -5,7 +5,7 @@ pipeline {
             steps {
                 checkout([$class: 'GitSCM', 
                           branches: [[name: '*/main']], 
-                          userRemoteConfigs: [[url: 'https://github.com/terateck/simple-ios-app.git', credentialsId: 'github_token']]])
+                          userRemoteConfigs: [[url: 'https://github.com/terateck/simple-ios-app.git']]])
             }
         }
         stage('Install Dependencies') {
