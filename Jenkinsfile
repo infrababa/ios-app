@@ -1,11 +1,14 @@
 pipeline {
     agent any
+    environment {
+        PATH = "/opt/homebrew/bin:/usr/local/bin:$PATH"  // Adjust based on your brew path
+    }
     stages {
         stage('Checkout') {
             steps {
                 checkout([$class: 'GitSCM', 
                           branches: [[name: '*/main']], 
-                          userRemoteConfigs: [[url: 'https://github.com/terateck/ios-app.git']]])
+                          userRemoteConfigs: [[url: 'https://github.com/infrababa/ios-app.git']]])
             }
         }
 
