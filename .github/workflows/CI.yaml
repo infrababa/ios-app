@@ -1,0 +1,39 @@
+name: SimpleLogin iOS CI
+on:
+  push:
+jobs:
+  lint:
+    runs-on: macos-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 1
+      - name: Install SwiftLint
+        run: brew install swiftlint
+      - name: Run SwiftLint
+        run: |
+          mkdir artifacts
+          swiftlint  --config SimpleLogin/.swiftlint.yml --reporter junit > artifacts/swiftlint_results.xml
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: artifacts
+          path: artifacts
+  build-app:
+    runs-on: macos-latest
+    needs: ['lint']
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 1
+      - name: Install Fastlane
+        run: |
+          gem install bundler
+          gem install fastlane
+      - name: Fastlane build
+        run: cd fastlane && fastlane build
+      - name: Fastlane clean up
+        run: cd fastlane && fastlane clean_up

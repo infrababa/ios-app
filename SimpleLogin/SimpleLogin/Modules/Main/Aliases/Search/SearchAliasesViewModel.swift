@@ -1,0 +1,224 @@
+//
+//  SearchAliasesViewModel.swift
+//  SimpleLogin
+//
+//  Created by Thanh-Nhon Nguyen on 05/02/2022.
+//
+
+import Combine
+import CoreData
+import Reachability
+import SimpleLoginPackage
+import SwiftUI
+
+final class SearchAliasesViewModel: BaseReachabilitySessionViewModel, ObservableObject {
+    private let searchTermSubject = PassthroughSubject<String, Never>()
+    private var cancellables = Set<AnyCancellable>()
+    private(set) var lastSearchTerm: String?
+
+    @Published private(set) var aliases = [Alias]()
+    @Published private(set) var isLoading = false
+    @Published private(set) var isUpdating = false
+    @Published private(set) var updatedAlias: Alias?
+    @Published private(set) var deletedAlias: Alias?
+    @Published var error: Error?
+    private var currentPage = 0
+    private var canLoadMorePages = true
+
+    private let dataController: DataController
+
+    init(session: Session,
+         reachabilityObserver: ReachabilityObserver,
+         managedObjectContext: NSManagedObjectContext) {
+        self.dataController = .init(context: managedObjectContext)
+        super.init(session: session, reachabilityObserver: reachabilityObserver)
+        searchTermSubject
+            .debounce(for: .seconds(0.5), scheduler: DispatchQueue.main)
+            .sink { [unowned self] term in
+                guard term.count >= 2 else {
+                    aliases.removeAll()
+                    lastSearchTerm = nil
+                    return
+                }
+                self.initialSearch(term: term)
+            }
+            .store(in: &cancellables)
+    }
+
+    override func whenReachable() {
+        objectWillChange.send()
+    }
+
+    override func whenUnreachable() {
+        objectWillChange.send()
+    }
+
+    func search(term: String) {
+        searchTermSubject.send(term)
+    }
+
+    func getMoreAliasesIfNeed(currentAlias alias: Alias) {
+        let thresholdIndex = aliases.index(aliases.endIndex, offsetBy: -1)
+        guard aliases.firstIndex(where: { $0.id == alias.id }) == thresholdIndex else { return }
+
+        guard let lastSearchTerm = lastSearchTerm, canLoadMorePages else { return }
+
+        if !reachabilityObserver.reachable {
+            do {
+                let fetchedAliases = try dataController.fetchAliases(page: currentPage,
+                                                                     searchTerm: lastSearchTerm)
+                self.aliases.append(contentsOf: fetchedAliases)
+                currentPage += 1
+                canLoadMorePages = fetchedAliases.count == kDefaultPageSize
+            } catch {
+                self.error = error
+            }
+            return
+        }
+
+        guard !isLoading else { return }
+
+        Task { @MainActor in
+            defer { isLoading = false }
+            isLoading = true
+            do {
+                let searchAliasesEndpoint = GetAliasesEndpoint(apiKey: session.apiKey.value,
+                                                               page: currentPage,
+                                                               option: .search(query: lastSearchTerm))
+                let newAliases = try await session.execute(searchAliasesEndpoint).aliases
+                aliases.append(contentsOf: newAliases)
+                currentPage += 1
+                canLoadMorePages = newAliases.count == kDefaultPageSize
+            } catch {
+                self.error = error
+            }
+        }
+    }
+
+    private func initialSearch(term: String) {
+        currentPage = 0
+        lastSearchTerm = term
+
+        if !reachabilityObserver.reachable {
+            do {
+                aliases = try dataController.fetchAliases(page: currentPage, searchTerm: term)
+                currentPage = 1
+                canLoadMorePages = aliases.count == kDefaultPageSize
+            } catch {
+                self.error = error
+            }
+            return
+        }
+
+        Task { @MainActor in
+            defer { isLoading = false }
+            isLoading = true
+            do {
+                let searchAliasesEndpoint = GetAliasesEndpoint(apiKey: session.apiKey.value,
+                                                               page: 0,
+                                                               option: .search(query: term))
+                let newAliases = try await session.execute(searchAliasesEndpoint).aliases
+                aliases = newAliases
+                currentPage = 1
+                canLoadMorePages = newAliases.count == kDefaultPageSize
+            } catch {
+                self.error = error
+            }
+        }
+    }
+
+    func update(alias: Alias) {
+        guard let index = aliases.firstIndex(where: { $0.id == alias.id }) else { return }
+        aliases[index] = alias
+    }
+
+    func remove(alias: Alias) {
+        aliases.removeAll { $0.id == alias.id }
+    }
+
+    func toggle(alias: Alias) {
+        guard !isUpdating else { return }
+        Task { @MainActor in
+            defer { isUpdating = false }
+            isUpdating = true
+            do {
+                let toggleAliasEndpoint = ToggleAliasEndpoint(apiKey: session.apiKey.value,
+                                                              aliasID: alias.id)
+                let enabledResponse = try await session.execute(toggleAliasEndpoint)
+                guard let index = self.aliases.firstIndex(where: { $0.id == alias.id }) else { return }
+                let updatedAlias = Alias(id: alias.id,
+                                         email: alias.email,
+                                         name: alias.name,
+                                         enabled: enabledResponse.value,
+                                         creationTimestamp: alias.creationTimestamp,
+                                         blockCount: alias.blockCount,
+                                         forwardCount: alias.forwardCount,
+                                         replyCount: alias.replyCount,
+                                         note: alias.note,
+                                         pgpSupported: alias.pgpSupported,
+                                         pgpDisabled: alias.pgpDisabled,
+                                         mailboxes: alias.mailboxes,
+                                         latestActivity: alias.latestActivity,
+                                         pinned: alias.pinned)
+                self.updatedAlias = updatedAlias
+                self.aliases[index] = updatedAlias
+                try self.dataController.update(updatedAlias)
+            } catch {
+                self.error = error
+            }
+        }
+    }
+
+    func update(alias: Alias, option: AliasUpdateOption) {
+        guard !isUpdating else { return }
+        Task { @MainActor in
+            defer { isUpdating = false }
+            isUpdating = true
+            do {
+                let updateAliasEndpoint = UpdateAliasEndpoint(apiKey: session.apiKey.value,
+                                                              aliasID: alias.id,
+                                                              option: option)
+                _ = try await session.execute(updateAliasEndpoint)
+                guard let index = self.aliases.firstIndex(where: { $0.id == alias.id }) else { return }
+                if case .pinned(let pinned) = option {
+                    let updatedAlias = Alias(id: alias.id,
+                                             email: alias.email,
+                                             name: alias.name,
+                                             enabled: alias.enabled,
+                                             creationTimestamp: alias.creationTimestamp,
+                                             blockCount: alias.blockCount,
+                                             forwardCount: alias.forwardCount,
+                                             replyCount: alias.replyCount,
+                                             note: alias.note,
+                                             pgpSupported: alias.pgpSupported,
+                                             pgpDisabled: alias.pgpDisabled,
+                                             mailboxes: alias.mailboxes,
+                                             latestActivity: alias.latestActivity,
+                                             pinned: pinned)
+                    self.updatedAlias = updatedAlias
+                    self.aliases[index] = updatedAlias
+                    try self.dataController.update(updatedAlias)
+                }
+            } catch {
+                self.error = error
+            }
+        }
+    }
+
+    func delete(alias: Alias) {
+        Task { @MainActor in
+            defer { isUpdating = false }
+            isUpdating = true
+            do {
+                let deleteAliasEndpoint = DeleteAliasEndpoint(apiKey: session.apiKey.value,
+                                                              aliasID: alias.id)
+                _ = try await session.execute(deleteAliasEndpoint)
+                self.deletedAlias = alias
+                self.remove(alias: alias)
+                try self.dataController.delete(alias)
+            } catch {
+                self.error = error
+            }
+        }
+    }
+}
