@@ -5,7 +5,7 @@ pipeline {
             steps {
                 checkout([$class: 'GitSCM', 
                           branches: [[name: '*/main']], 
-                          userRemoteConfigs: [[url: 'https://github.com/terateck/simple-ios-app.git']]])
+                          userRemoteConfigs: [[url: 'https://github.com/terateck/ios-app.git']]])
             }
         }
 
