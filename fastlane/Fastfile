@@ -5,12 +5,24 @@ lane :clean_up do
 end
 
 lane :build do
-    build_app(
+    gym(
         project: "SimpleLogin/SimpleLogin.xcodeproj",
         scheme: "SimpleLogin",
         derived_data_path: DERIVED_DATA_PATH,
         clean: true,
-        skip_archive: true,
-        skip_codesigning: true
+        export_method: "development"
+    )
+end
+
+lane :deploy do
+    match(type: "appstore", readonly: true)  # Use readonly in CI for security
+    gym(
+        project: "SimpleLogin/SimpleLogin.xcodeproj",
+        scheme: "SimpleLogin",
+        export_method: "app-store",
+        clean: true
+    )
+    pilot(
+        skip_waiting_for_build_processing: true
     )
 end

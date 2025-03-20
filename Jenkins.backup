@@ -1,5 +1,5 @@
 pipeline {
-    agent { label 'macos' }
+    agent any
     environment {
         PATH = "/opt/homebrew/bin:/opt/homebrew/opt/ruby/bin:/usr/local/bin:$PATH"
         LANG = 'en_US.UTF-8'
@@ -59,14 +59,11 @@ pipeline {
                 '''
             }
         }
-        stage('Deploy to TestFlight') {
+
+        stage('Build and Clean') {
             steps {
-                withCredentials([string(credentialsId: 'fastlane-api-key-id', variable: 'FASTLANE_APPLE_API_KEY_ID'),
-                                 string(credentialsId: 'fastlane-api-key-issuer-id', variable: 'FASTLANE_APPLE_API_KEY_ISSUER_ID'),
-                                 string(credentialsId: 'fastlane-api-key-key', variable: 'FASTLANE_APPLE_API_KEY_KEY'),
-                                 string(credentialsId: 'match-password', variable: 'MATCH_PASSWORD')]) {
-                    sh 'cd fastlane && fastlane deploy'
-                }
+                sh 'cd fastlane && fastlane build'
+                sh 'cd fastlane && fastlane clean_up'
             }
         }
     }
