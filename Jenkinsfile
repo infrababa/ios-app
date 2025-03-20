@@ -8,12 +8,7 @@ pipeline {
                           userRemoteConfigs: [[url: 'https://github.com/terateck/simple-ios-app.git']]])
             }
         }
-        stage('Install Dependencies') {
-            steps {
-                sh 'brew install swiftlint'
-                sh 'gem install bundler fastlane'
-            }
-        }
+
         stage('Lint') {
             steps {
                 sh '''
