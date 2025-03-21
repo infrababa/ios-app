@@ -1,5 +1,5 @@
 pipeline {
-    agent { label 'macos' }
+    agent any
     environment {
         PATH = "/opt/homebrew/bin:/opt/homebrew/opt/ruby/bin:/usr/local/bin:$PATH"
         LANG = 'en_US.UTF-8'
